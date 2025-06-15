@@ -249,11 +249,9 @@ pub struct MemoryHierarchy {
     internal_sram: InternalSram, // 内部SRAM
 
     // 外部メモリ（独立クロック）
-    external_dram: Option<DramController>, // 外部DRAM（大型システム用）
-
-    // メモリコントローラー設定
-    is_microcontroller: bool,         // マイコン（内部DRAM）かどうか
-    memory_map: HashMap<u64, String>, // メモリマップ
+    external_dram: Option<DramController>, // 外部DRAM（大型システム用）    // メモリコントローラー設定
+    is_microcontroller: bool,              // マイコン（内部SRAM）かどうか
+    memory_map: HashMap<u64, String>,      // メモリマップ
 
     // パフォーマンス統計
     total_accesses: u64,
@@ -263,17 +261,16 @@ pub struct MemoryHierarchy {
 }
 
 impl MemoryHierarchy {
-    /// マイコン用の構成（内部DRAM）
+    /// マイコン用の構成（内部SRAM）
     pub fn new_microcontroller(
         icache_size: usize,
         dcache_size: usize,
-        sram_size: usize,
-        internal_dram_size: usize,
+        internal_sram_size: usize,
     ) -> Self {
         Self {
             instruction_cache: L1Cache::new(icache_size, 32, 2, "ICache"),
             data_cache: L1Cache::new(dcache_size, 32, 2, "DCache"),
-            internal_sram: InternalSram::new(sram_size),
+            internal_sram: InternalSram::new(internal_sram_size),
             external_dram: None, // マイコンは外部DRAM無し
             is_microcontroller: true,
             memory_map: Self::create_microcontroller_memory_map(),
@@ -304,13 +301,12 @@ impl MemoryHierarchy {
             dram_accesses: 0,
         }
     }
-
     fn create_microcontroller_memory_map() -> HashMap<u64, String> {
         let mut map = HashMap::new();
         map.insert(0x0000_0000, "Internal Flash".to_string());
-        map.insert(0x2000_0000, "Internal SRAM".to_string());
+        map.insert(0x2000_0000, "Internal SRAM (Main Memory)".to_string());
         map.insert(0x4000_0000, "Peripheral Registers".to_string());
-        map.insert(0x6000_0000, "Internal DRAM".to_string());
+        map.insert(0x6000_0000, "Extended Internal SRAM".to_string());
         map
     }
 
@@ -395,11 +391,9 @@ impl MemoryHierarchy {
         if address >= 0x2000_0000 && address < 0x2000_0000 + self.internal_sram.size as u64 {
             let offset = (address - 0x2000_0000) as usize;
             return self.internal_sram.read(offset, size);
-        }
-
-        // 外部DRAMアクセス
+        } // 外部DRAMアクセス
         if !self.is_microcontroller {
-            if let Some(ref mut dram) = self.external_dram {
+            if let Some(ref mut _dram) = self.external_dram {
                 self.dram_accesses += 1;
                 // 簡略化されたDRAMアクセス
                 // 実際にはDRAMコントローラーを通じてアクセス
@@ -415,11 +409,9 @@ impl MemoryHierarchy {
         if address >= 0x2000_0000 && address < 0x2000_0000 + self.internal_sram.size as u64 {
             let offset = (address - 0x2000_0000) as usize;
             return self.internal_sram.write(offset, data);
-        }
-
-        // 外部DRAMアクセス
+        } // 外部DRAMアクセス
         if !self.is_microcontroller {
-            if let Some(ref mut dram) = self.external_dram {
+            if let Some(ref mut _dram) = self.external_dram {
                 self.dram_accesses += 1;
                 // 簡略化されたDRAMアクセス
                 return true; // プレースホルダー
@@ -434,7 +426,6 @@ impl MemoryHierarchy {
         let dcache_hit_rate = self.data_cache.get_hit_rate();
         (icache_hit_rate, dcache_hit_rate)
     }
-
     pub fn get_memory_info(&self) -> String {
         let architecture = if self.is_microcontroller {
             "Microcontroller"
@@ -444,11 +435,17 @@ impl MemoryHierarchy {
 
         let (icache_hit_rate, dcache_hit_rate) = self.get_cache_statistics();
 
+        let sram_description = if self.is_microcontroller {
+            "Internal SRAM (Main Memory)"
+        } else {
+            "Internal SRAM"
+        };
+
         format!(
             "Memory Architecture: {}\n\
              L1 ICache: {}KB (Hit Rate: {:.2}%)\n\
              L1 DCache: {}KB (Hit Rate: {:.2}%)\n\
-             Internal SRAM: {}KB\n\
+             {}: {}KB\n\
              External DRAM: {}\n\
              Total Accesses: {}\n\
              DRAM Accesses: {}",
@@ -457,6 +454,7 @@ impl MemoryHierarchy {
             icache_hit_rate * 100.0,
             self.data_cache.total_size / 1024,
             dcache_hit_rate * 100.0,
+            sram_description,
             self.internal_sram.size / 1024,
             if self.external_dram.is_some() {
                 "Present"
@@ -478,7 +476,7 @@ impl Clocked for MemoryHierarchy {
     fn on_clock_edge(&mut self, edge: ClockEdge, _clock_name: &str) {
         if edge == ClockEdge::Rising {
             // 外部DRAMは独立したクロックで動作
-            if let Some(ref mut dram) = self.external_dram {
+            if let Some(ref mut _dram) = self.external_dram {
                 // DRAMの独立クロック処理はここで行わない
                 // 実際には別のクロックドメインで処理される
             }

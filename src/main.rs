@@ -414,8 +414,7 @@ fn run_memory_hierarchy_test() {
     let mut mcu_memory = MemoryHierarchy::new_microcontroller(
         8 * 1024,   // 8KB L1 ICache
         8 * 1024,   // 8KB L1 DCache
-        32 * 1024,  // 32KB Internal SRAM
-        128 * 1024, // 128KB Internal DRAM
+        128 * 1024, // 128KB Internal SRAM (Main Memory)
     );
 
     println!("  {}", mcu_memory.get_memory_info());
@@ -452,7 +451,7 @@ fn run_memory_hierarchy_test() {
 
     println!("\n2. PC/Server Memory Hierarchy:");
     let external_dram = DramController::new(256, 256, 64); // 256x256 DRAMアレイ
-    let pc_memory = MemoryHierarchy::new_pc_server(
+    let mut pc_memory = MemoryHierarchy::new_pc_server(
         32 * 1024, // 32KB L1 ICache
         32 * 1024, // 32KB L1 DCache
         64 * 1024, // 64KB Internal SRAM
@@ -468,13 +467,13 @@ fn run_memory_hierarchy_test() {
     println!("  - Intensive instruction fetch test...");
     for i in 0..100 {
         let addr = 0x8000_0000 + i * 4;
-        mcu_memory.read_instruction(addr);
+        pc_memory.read_instruction(addr);
     }
 
     // 同じアドレスに再アクセス（キャッシュヒット確認）
     for i in 0..50 {
         let addr = 0x8000_0000 + i * 4;
-        mcu_memory.read_instruction(addr);
+        pc_memory.read_instruction(addr);
     }
 
     let (icache_hit2, dcache_hit2) = pc_memory.get_cache_statistics();
@@ -485,9 +484,9 @@ fn run_memory_hierarchy_test() {
     println!("\n3. Memory Architecture Comparison:");
     println!("  Microcontroller:");
     println!("    - CPU内部に小容量キャッシュ");
-    println!("    - 内部SRAMで高速アクセス");
-    println!("    - 内部DRAMでコスト効率");
-    println!("    - 外部メモリ不要");
+    println!("    - 内部SRAMがメインメモリ");
+    println!("    - 高速アクセス、低消費電力");
+    println!("    - 外部メモリ不要（オールインワン）");
 
     println!("  PC/Server:");
     println!("    - CPU内部に大容量キャッシュ");

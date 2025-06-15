@@ -143,15 +143,18 @@ fn run_dram_test() {
     let data_bus = dram.get_data_bus();
     println!("  Read data: {:?}", data_bus[0]);
 
-    // 電荷漏れシミュレーション
-    println!("3. Charge Leakage Simulation:");
-    if let Some(charge) = dram.get_cell_charge(5, 5) {
-        println!("  Initial charge: {charge:.3}");
+    // データ有効性チェック
+    println!("3. Data Validity Check:");
+    if let Some(data) = dram.get_cell_data(5, 5) {
+        let validity = dram.is_cell_data_valid(5, 5, 64).unwrap_or(false);
+        println!("  Cell data: {}, Valid: {}", data, validity);
     }
 
-    dram.simulate_leakage(50.0); // 50ms経過
-    if let Some(charge) = dram.get_cell_charge(5, 5) {
-        println!("  After 50ms: {charge:.3}");
+    // リフレッシュ間隔を超えた場合の動作をシミュレート
+    std::thread::sleep(std::time::Duration::from_millis(100)); // 100ms待機
+    if let Some(data) = dram.get_cell_data(5, 5) {
+        let validity = dram.is_cell_data_valid(5, 5, 64).unwrap_or(false);
+        println!("  After 100ms - Cell data: {}, Valid: {}", data, validity);
     }
 }
 

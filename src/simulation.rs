@@ -358,11 +358,14 @@ impl ComputerSimulation {
         println!(
             "CPU プログラムカウンタ: 0x{:04X}",
             self.cpu.get_program_counter()
-        );
-
-        // DRAMの一部のセル状態を表示
-        if let Some(charge) = self.dram_controller.get_dram().get_cell_charge(0, 0) {
-            println!("DRAM[0,0] 電荷レベル: {charge:.3}");
+        ); // DRAMの一部のセル状態を表示
+        if let Some(data) = self.dram_controller.get_dram().get_cell_data(0, 0) {
+            let validity = self
+                .dram_controller
+                .get_dram()
+                .is_cell_data_valid(0, 0, 64)
+                .unwrap_or(false);
+            println!("DRAM[0,0] データ: {}, 有効: {}", data, validity);
         }
 
         println!("ワイヤ数: {}", self.wires.len());
@@ -505,9 +508,10 @@ impl ComputerSimulation {
         }
 
         if let Some(max_cycles) = self.config.max_cycles
-            && self.step_count >= max_cycles {
-                return false;
-            } // クロック進行
+            && self.step_count >= max_cycles
+        {
+            return false;
+        } // クロック進行
         self.simulation_clock.step();
 
         // メモリアクセス処理

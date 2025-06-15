@@ -6,8 +6,8 @@ use std::time::{Duration, Instant};
 /// DRAMセルの状態
 #[derive(Debug, Clone)]
 pub struct DramCell {
-    /// キャパシタの電荷量 (0.0 - 1.0)
-    charge_level: f64,
+    /// データ (true/false)
+    data: bool,
     /// 最後のリフレッシュ時刻
     last_refresh_time: Option<Instant>,
     /// 現在アクセス中かどうか
@@ -21,59 +21,48 @@ pub struct DramCell {
 impl DramCell {
     pub fn new() -> Self {
         Self {
-            charge_level: 0.0,
+            data: false,
             last_refresh_time: None,
             is_accessing: false,
             row_select: false,
             col_select: false,
         }
     }
-
     /// データを書き込み
     pub fn write(&mut self, data: bool) {
         if self.is_accessible() {
-            self.charge_level = if data { 1.0 } else { 0.0 };
+            self.data = data;
             self.last_refresh_time = Some(Instant::now());
         }
     }
-
     /// データを読み出し（破壊読み出し）
     pub fn read(&mut self) -> Option<bool> {
         if !self.is_accessible() {
             return None;
         }
 
-        // 電荷レベルに基づいて読み出し（しきい値は0.5）
-        let data = self.charge_level > 0.5;
+        let current_data = self.data;
 
-        // 読み出し後の電荷減衰をシミュレート
-        self.charge_level *= 0.8;
-
-        // 読み出し後に再書き込み（リストア）
-        self.charge_level = if data { 1.0 } else { 0.0 };
+        // 読み出し後のリストア（破壊読み出しの特性）
         self.last_refresh_time = Some(Instant::now());
 
-        Some(data)
+        Some(current_data)
     }
-
     /// リフレッシュ動作
     pub fn refresh(&mut self) {
         if self.is_accessible() {
-            // 現在の状態を読み出して再書き込み
-            let current_data = self.charge_level > 0.5;
-            self.charge_level = if current_data { 1.0 } else { 0.0 };
+            // 現在の状態を保持してリフレッシュ時刻を更新
             self.last_refresh_time = Some(Instant::now());
         }
     }
-    /// 電荷漏れをシミュレート
-    pub fn simulate_leakage(&mut self, delta_time_ms: f64) {
-        // 電荷漏れ率（実際のDRAMでは数十ms〜数百msで半分に減衰）
-        let leakage_rate: f64 = 0.001; // 1ms当たり0.1%の漏れ
-        self.charge_level *= (1.0_f64 - leakage_rate).powf(delta_time_ms);
-
-        // 最小値を設定
-        if self.charge_level < 0.0 {
-            self.charge_level = 0.0;
+    /// データが有効かチェック（リフレッシュ間隔を超えた場合は無効）
+    pub fn is_data_valid(&self, refresh_interval_ms: u64) -> bool {
+        match self.last_refresh_time {
+            Some(last_time) => {
+                let elapsed = last_time.elapsed();
+                elapsed.as_millis() as u64 <= refresh_interval_ms
+            }
+            None => false, // 未初期化のセルは無効
         }
     }
 
@@ -88,9 +77,8 @@ impl DramCell {
     pub fn is_accessible(&self) -> bool {
         self.row_select && self.col_select
     }
-
-    pub fn get_charge_level(&self) -> f64 {
-        self.charge_level
+    pub fn get_data(&self) -> bool {
+        self.data
     }
 
     pub fn needs_refresh(&self, refresh_interval_ms: u64) -> bool {
@@ -219,9 +207,10 @@ impl DramArray {
         let mut address = 0;
         for (i, bit) in self.address_bus.iter().enumerate() {
             if let Some(bit_val) = bit.to_bool()
-                && bit_val {
-                    address |= 1 << i;
-                }
+                && bit_val
+            {
+                address |= 1 << i;
+            }
         }
         address
     }
@@ -310,21 +299,20 @@ impl DramArray {
         self.refresh_counter += 1;
         self.last_refresh_time = Instant::now();
     }
-
-    /// 電荷漏れシミュレーション
-    pub fn simulate_leakage(&mut self, delta_time_ms: f64) {
-        for row in &mut self.cells {
-            for cell in row {
-                cell.simulate_leakage(delta_time_ms);
-            }
-        }
+    pub fn get_cell_data(&self, row: usize, col: usize) -> Option<bool> {
+        self.cells.get(row)?.get(col).map(|cell| cell.get_data())
     }
 
-    pub fn get_cell_charge(&self, row: usize, col: usize) -> Option<f64> {
+    pub fn is_cell_data_valid(
+        &self,
+        row: usize,
+        col: usize,
+        refresh_interval_ms: u64,
+    ) -> Option<bool> {
         self.cells
             .get(row)?
             .get(col)
-            .map(|cell| cell.get_charge_level())
+            .map(|cell| cell.is_data_valid(refresh_interval_ms))
     }
 }
 
@@ -369,9 +357,6 @@ impl Clocked for DramController {
                 self.next_refresh_time =
                     Instant::now() + Duration::from_millis(self.refresh_interval_ms);
             }
-
-            // 電荷漏れシミュレーション
-            self.dram.simulate_leakage(1.0); // 1ms単位
         }
     }
 
@@ -385,7 +370,6 @@ impl Clocked for DramController {
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
     fn test_dram_cell() {
         let mut cell = DramCell::new();
@@ -395,7 +379,7 @@ mod tests {
         cell.set_col_select(true);
         cell.write(true);
 
-        assert!(cell.get_charge_level() > 0.5);
+        assert_eq!(cell.get_data(), true);
 
         // 読み出しテスト
         let data = cell.read();

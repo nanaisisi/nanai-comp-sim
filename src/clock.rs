@@ -3,9 +3,9 @@ use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ClockEdge {
-    Rising,   // 立ち上がりエッジ
-    Falling,  // 立ち下がりエッジ
-    None,     // エッジなし
+    Rising,  // 立ち上がりエッジ
+    Falling, // 立ち下がりエッジ
+    None,    // エッジなし
 }
 
 #[derive(Debug, Clone)]
@@ -28,13 +28,13 @@ impl ClockSignal {
             period_ns,
         }
     }
-
     pub fn tick(&mut self, delta_time_ns: u64) {
         self.previous_state = self.current_state;
         self.current_time_ns += delta_time_ns;
-        
+
         let cycle_position = self.current_time_ns % self.period_ns;
-        self.current_state = cycle_position < (self.period_ns / 2);
+        // First half of period: low, second half: high
+        self.current_state = cycle_position >= (self.period_ns / 2);
     }
 
     pub fn get_edge(&self) -> ClockEdge {
@@ -64,7 +64,7 @@ pub struct SimulationClock {
     master_clock: ClockSignal,
     secondary_clocks: HashMap<String, ClockSignal>,
     current_simulation_time_ns: u64,
-    time_step_ns: u64,
+    pub time_step_ns: u64,
 }
 
 impl SimulationClock {
@@ -78,13 +78,14 @@ impl SimulationClock {
     }
 
     pub fn add_clock(&mut self, name: String, frequency_hz: f64) {
-        self.secondary_clocks.insert(name, ClockSignal::new(frequency_hz));
+        self.secondary_clocks
+            .insert(name, ClockSignal::new(frequency_hz));
     }
 
     pub fn step(&mut self) {
         self.current_simulation_time_ns += self.time_step_ns;
         self.master_clock.tick(self.time_step_ns);
-        
+
         for clock in self.secondary_clocks.values_mut() {
             clock.tick(self.time_step_ns);
         }
@@ -170,13 +171,12 @@ impl Clocked for DFlipFlop {
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
     fn test_clock_signal() {
-        let mut clock = ClockSignal::new(1_000_000.0); // 1MHz
+        let mut clock = ClockSignal::new(1_000_000.0); // 1MHz = 1000ns period
         assert_eq!(clock.is_low(), true);
-        
-        clock.tick(500); // 0.5μs
+
+        clock.tick(500); // 0.5μs = 500ns, should transition to high
         assert_eq!(clock.is_high(), true);
         assert_eq!(clock.get_edge(), ClockEdge::Rising);
     }
@@ -185,7 +185,7 @@ mod tests {
     fn test_d_flip_flop() {
         let mut dff = DFlipFlop::new();
         dff.set_d(true);
-        
+
         dff.on_clock_edge(ClockEdge::Rising, "master");
         assert_eq!(dff.get_q(), true);
         assert_eq!(dff.get_q_not(), false);
@@ -195,7 +195,7 @@ mod tests {
     fn test_simulation_clock() {
         let mut sim_clock = SimulationClock::new(1_000_000.0, 100); // 1MHz, 100ns step
         sim_clock.add_clock("cpu".to_string(), 100_000_000.0); // 100MHz CPU clock
-        
+
         sim_clock.step();
         assert_eq!(sim_clock.get_current_time_ns(), 100);
     }

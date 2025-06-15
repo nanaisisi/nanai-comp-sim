@@ -5,12 +5,12 @@
 pub enum LogicLevel {
     Low,
     High,
-    HighZ,  // ハイインピーダンス状態
+    HighZ,   // ハイインピーダンス状態
     Unknown, // 未定義状態
 }
 
 impl LogicLevel {
-    pub fn to_bool(&self) -> Option<bool> {
+    pub fn to_bool(self) -> Option<bool> {
         match self {
             LogicLevel::Low => Some(false),
             LogicLevel::High => Some(true),
@@ -87,7 +87,11 @@ impl CompositeGates {
     }
 
     /// 全加算器 (Full Adder)
-    pub fn full_adder(a: LogicLevel, b: LogicLevel, carry_in: LogicLevel) -> (LogicLevel, LogicLevel) {
+    pub fn full_adder(
+        a: LogicLevel,
+        b: LogicLevel,
+        carry_in: LogicLevel,
+    ) -> (LogicLevel, LogicLevel) {
         let (sum1, carry1) = Self::half_adder(a, b);
         let (sum, carry2) = Self::half_adder(sum1, carry_in);
         let carry_out = LogicGates::or(carry1, carry2);
@@ -109,9 +113,18 @@ mod tests {
 
     #[test]
     fn test_basic_gates() {
-        assert_eq!(LogicGates::and(LogicLevel::High, LogicLevel::High), LogicLevel::High);
-        assert_eq!(LogicGates::and(LogicLevel::High, LogicLevel::Low), LogicLevel::Low);
-        assert_eq!(LogicGates::or(LogicLevel::Low, LogicLevel::High), LogicLevel::High);
+        assert_eq!(
+            LogicGates::and(LogicLevel::High, LogicLevel::High),
+            LogicLevel::High
+        );
+        assert_eq!(
+            LogicGates::and(LogicLevel::High, LogicLevel::Low),
+            LogicLevel::Low
+        );
+        assert_eq!(
+            LogicGates::or(LogicLevel::Low, LogicLevel::High),
+            LogicLevel::High
+        );
         assert_eq!(LogicGates::not(LogicLevel::High), LogicLevel::Low);
     }
 

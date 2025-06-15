@@ -1,7 +1,6 @@
+use crate::clock::{ClockEdge, Clocked};
 /// DRAMシミュレーション - 現実の回路素子特性を模擬
 use crate::logic_gates::LogicLevel;
-use crate::clock::{ClockEdge, Clocked};
-use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 /// DRAMセルの状態
@@ -46,14 +45,14 @@ impl DramCell {
 
         // 電荷レベルに基づいて読み出し（しきい値は0.5）
         let data = self.charge_level > 0.5;
-        
+
         // 読み出し後の電荷減衰をシミュレート
         self.charge_level *= 0.8;
-        
+
         // 読み出し後に再書き込み（リストア）
         self.charge_level = if data { 1.0 } else { 0.0 };
         self.last_refresh_time = Some(Instant::now());
-        
+
         Some(data)
     }
 
@@ -66,13 +65,12 @@ impl DramCell {
             self.last_refresh_time = Some(Instant::now());
         }
     }
-
     /// 電荷漏れをシミュレート
     pub fn simulate_leakage(&mut self, delta_time_ms: f64) {
         // 電荷漏れ率（実際のDRAMでは数十ms〜数百msで半分に減衰）
-        let leakage_rate = 0.001; // 1ms当たり0.1%の漏れ
-        self.charge_level *= (1.0 - leakage_rate).powf(delta_time_ms);
-        
+        let leakage_rate: f64 = 0.001; // 1ms当たり0.1%の漏れ
+        self.charge_level *= (1.0_f64 - leakage_rate).powf(delta_time_ms);
+
         // 最小値を設定
         if self.charge_level < 0.0 {
             self.charge_level = 0.0;
@@ -183,7 +181,7 @@ impl DramArray {
             // CAS立ち上がりエッジで列アドレスをラッチ
             self.col_address = self.decode_address() & ((1 << self.cols.ilog2()) - 1);
             self.activate_col(self.col_address);
-            
+
             // 読み書き実行
             if self.ras_signal {
                 if self.we_signal {
@@ -220,11 +218,10 @@ impl DramArray {
     fn decode_address(&self) -> usize {
         let mut address = 0;
         for (i, bit) in self.address_bus.iter().enumerate() {
-            if let Some(bit_val) = bit.to_bool() {
-                if bit_val {
+            if let Some(bit_val) = bit.to_bool()
+                && bit_val {
                     address |= 1 << i;
                 }
-            }
         }
         address
     }
@@ -277,9 +274,9 @@ impl DramArray {
     fn write_data(&mut self) {
         if self.row_address < self.rows && self.col_address < self.cols {
             let cell = &mut self.cells[self.row_address][self.col_address];
-            
+
             // データバスの最初のビットを書き込み（簡略化）
-            if let Some(data_bit) = self.data_bus.get(0).and_then(|level| level.to_bool()) {
+            if let Some(data_bit) = self.data_bus.first().and_then(|level| level.to_bool()) {
                 cell.write(data_bit);
             }
         }
@@ -289,7 +286,7 @@ impl DramArray {
     fn read_data(&mut self) {
         if self.row_address < self.rows && self.col_address < self.cols {
             let cell = &mut self.cells[self.row_address][self.col_address];
-            
+
             if let Some(data) = cell.read() {
                 // データバスに出力
                 self.data_bus[0] = LogicLevel::from_bool(data);
@@ -324,7 +321,10 @@ impl DramArray {
     }
 
     pub fn get_cell_charge(&self, row: usize, col: usize) -> Option<f64> {
-        self.cells.get(row)?.get(col).map(|cell| cell.get_charge_level())
+        self.cells
+            .get(row)?
+            .get(col)
+            .map(|cell| cell.get_charge_level())
     }
 }
 
@@ -366,7 +366,8 @@ impl Clocked for DramController {
             // リフレッシュタイマーのチェック
             if self.auto_refresh_enabled && Instant::now() >= self.next_refresh_time {
                 self.dram.auto_refresh();
-                self.next_refresh_time = Instant::now() + Duration::from_millis(self.refresh_interval_ms);
+                self.next_refresh_time =
+                    Instant::now() + Duration::from_millis(self.refresh_interval_ms);
             }
 
             // 電荷漏れシミュレーション
@@ -388,14 +389,14 @@ mod tests {
     #[test]
     fn test_dram_cell() {
         let mut cell = DramCell::new();
-        
+
         // 書き込みテスト
         cell.set_row_select(true);
         cell.set_col_select(true);
         cell.write(true);
-        
+
         assert!(cell.get_charge_level() > 0.5);
-        
+
         // 読み出しテスト
         let data = cell.read();
         assert_eq!(data, Some(true));
@@ -404,23 +405,23 @@ mod tests {
     #[test]
     fn test_dram_array() {
         let mut dram = DramArray::new(4, 4);
-        
+
         // アドレス設定
         dram.set_address_bus(vec![LogicLevel::Low, LogicLevel::High]); // アドレス2
         dram.set_data_bus(vec![LogicLevel::High]); // データ1
-        
+
         // 書き込み
         dram.set_we(true);
         dram.set_ras(true);
         dram.set_cas(true);
-        
+
         // 読み出し
         dram.set_we(false);
         dram.set_ras(false);
         dram.set_cas(false);
         dram.set_ras(true);
         dram.set_cas(true);
-        
+
         let data_bus = dram.get_data_bus();
         assert_eq!(data_bus[0], LogicLevel::High);
     }

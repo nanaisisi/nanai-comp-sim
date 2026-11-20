@@ -1,9 +1,6 @@
 // メモリ階層テスト専用プログラム
-mod memory_hierarchy;
-mod dram;
-
-use memory_hierarchy::MemoryHierarchy;
-use dram::DramController;
+use comp_sim::dram::DramController;
+use comp_sim::memory_hierarchy::MemoryHierarchy;
 
 fn main() {
     println!("\n=== Memory Hierarchy Test ===");

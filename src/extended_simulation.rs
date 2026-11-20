@@ -1,9 +1,9 @@
 use crate::clock::*;
 use crate::dram::*;
+use crate::qemu::{ElfGenerator, QemuConfig, QemuGdbStub};
 use crate::riscv::{ArchWidth, RiscVInstruction};
 use crate::riscv_cpu::RiscVCpu;
 use crate::waveform::WaveformRecorder;
-use crate::qemu::{ElfGenerator, QemuConfig, QemuGdbStub};
 use std::collections::HashMap;
 
 /// 拡張シミュレーション構成
@@ -54,12 +54,12 @@ pub struct ExtendedComputerSimulation {
     pub waveform_recorder: WaveformRecorder,
     qemu_stub: Option<QemuGdbStub>,
     elf_generator: ElfGenerator,
-    
+
     // シミュレーション状態
     running: bool,
     step_count: u64,
     memory: HashMap<u64, u8>, // 簡単なメモリモデル
-    
+
     // パフォーマンス解析
     performance_stats: PerformanceStats,
 }
@@ -69,10 +69,10 @@ impl ExtendedComputerSimulation {
         let mut simulation_clock = SimulationClock::new(100_000_000.0, 10); // 100MHz, 10ns step
         simulation_clock.add_clock("cpu".to_string(), 100_000_000.0); // 100MHz CPU
         simulation_clock.add_clock("memory".to_string(), 200_000_000.0); // 200MHz memory
-        
+
         let riscv_cpu = RiscVCpu::new(config.arch_width);
         let dram_controller = DramController::new(1024, 1024, 64); // 1MB DRAM
-        
+
         let mut waveform_recorder = WaveformRecorder::new();
         if config.enable_waveform_recording {
             // 波形記録用信号を追加
@@ -83,23 +83,24 @@ impl ExtendedComputerSimulation {
             waveform_recorder.add_signal("mem_addr".to_string(), 64);
             waveform_recorder.add_signal("mem_data".to_string(), 64);
             waveform_recorder.add_signal("mem_write".to_string(), 1);
-            
+
             // レジスタ
             for i in 0..32 {
                 waveform_recorder.add_signal(format!("x{i}"), 64);
             }
         }
-        
+
         let qemu_stub = if config.enable_qemu_integration {
-            config.qemu_config.as_ref().map(|qemu_config| {
-                QemuGdbStub::new(qemu_config.clone())
-            })
+            config
+                .qemu_config
+                .as_ref()
+                .map(|qemu_config| QemuGdbStub::new(qemu_config.clone()))
         } else {
             None
         };
-        
+
         let elf_generator = ElfGenerator::new(config.arch_width);
-        
+
         Self {
             config,
             simulation_clock,
@@ -116,14 +117,22 @@ impl ExtendedComputerSimulation {
     }
 
     /// プログラムをメモリにロード
-    pub fn load_program(&mut self, program: &[RiscVInstruction], start_address: u64) -> Result<(), String> {
-        println!("Loading program with {} instructions at 0x{:016X}", program.len(), start_address);
-        
+    pub fn load_program(
+        &mut self,
+        program: &[RiscVInstruction],
+        start_address: u64,
+    ) -> Result<(), String> {
+        println!(
+            "Loading program with {} instructions at 0x{:016X}",
+            program.len(),
+            start_address
+        );
+
         let mut address = start_address;
         for instruction in program {
             // 命令をELFジェネレータに追加
             self.elf_generator.add_instruction(instruction.clone())?;
-            
+
             // 命令をメモリに配置（簡略化）
             let encoded = self.encode_instruction_simple(instruction)?;
             let bytes = encoded.to_le_bytes();
@@ -132,10 +141,10 @@ impl ExtendedComputerSimulation {
             }
             address += 4;
         }
-        
+
         // CPUのPCを設定
         self.riscv_cpu.set_pc(start_address);
-        
+
         println!("Program loaded successfully");
         Ok(())
     }
@@ -143,19 +152,27 @@ impl ExtendedComputerSimulation {
     /// 簡単な命令エンコード（デモ用）
     fn encode_instruction_simple(&self, instruction: &RiscVInstruction) -> Result<u32, String> {
         match instruction {
-            RiscVInstruction::Addi(rd, rs1, imm) => {
-                Ok(0x00000013 | ((*rd as u32) << 7) | ((*rs1 as u32) << 15) | (((*imm as u32) & 0xFFF) << 20))
-            }
-            RiscVInstruction::Add(rd, rs1, rs2) => {
-                Ok(0x00000033 | ((*rd as u32) << 7) | ((*rs1 as u32) << 15) | ((*rs2 as u32) << 20))
-            }
+            RiscVInstruction::Addi(rd, rs1, imm) => Ok(0x00000013
+                | ((*rd as u32) << 7)
+                | ((*rs1 as u32) << 15)
+                | (((*imm as u32) & 0xFFF) << 20)),
+            RiscVInstruction::Add(rd, rs1, rs2) => Ok(0x00000033
+                | ((*rd as u32) << 7)
+                | ((*rs1 as u32) << 15)
+                | ((*rs2 as u32) << 20)),
             RiscVInstruction::Bne(rs1, rs2, imm) => {
                 let imm_val = *imm as u32;
                 let imm_11 = (imm_val >> 11) & 1;
                 let imm_4_1 = (imm_val >> 1) & 0xF;
                 let imm_10_5 = (imm_val >> 5) & 0x3F;
                 let imm_12 = (imm_val >> 12) & 1;
-                Ok(0x00001063 | (imm_11 << 7) | (imm_4_1 << 8) | ((*rs1 as u32) << 15) | ((*rs2 as u32) << 20) | (imm_10_5 << 25) | (imm_12 << 31))
+                Ok(0x00001063
+                    | (imm_11 << 7)
+                    | (imm_4_1 << 8)
+                    | ((*rs1 as u32) << 15)
+                    | ((*rs2 as u32) << 20)
+                    | (imm_10_5 << 25)
+                    | (imm_12 << 31))
             }
             RiscVInstruction::Halt => {
                 Ok(0x00100073) // ebreak
@@ -171,9 +188,15 @@ impl ExtendedComputerSimulation {
                 let imm_val = *imm as u32;
                 let imm_low = imm_val & 0x1F;
                 let imm_high = (imm_val >> 5) & 0x7F;
-                Ok(0x00002023 | (imm_low << 7) | ((*rs1 as u32) << 15) | ((*rs2 as u32) << 20) | (imm_high << 25))
+                Ok(0x00002023
+                    | (imm_low << 7)
+                    | ((*rs1 as u32) << 15)
+                    | ((*rs2 as u32) << 20)
+                    | (imm_high << 25))
             }
-            _ => Err(format!("Instruction encoding not implemented: {instruction:?}")),
+            _ => Err(format!(
+                "Instruction encoding not implemented: {instruction:?}"
+            )),
         }
     }
 
@@ -199,29 +222,35 @@ impl ExtendedComputerSimulation {
     /// シミュレーション開始
     pub fn start(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         self.running = true;
-        
+
         if self.config.enable_waveform_recording {
             let vcd_file = self.config.waveform_output_file.as_deref();
             self.waveform_recorder.start_recording(vcd_file)?;
         }
-        
+
         if let Some(ref mut qemu_stub) = self.qemu_stub {
             qemu_stub.start_qemu()?;
         }
-        
-        println!("Extended simulation started with {} configuration", self.config.arch_width);
+
+        println!(
+            "Extended simulation started with {} configuration",
+            self.config.arch_width
+        );
         Ok(())
     }
 
     /// シミュレーション停止
     pub fn stop(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         self.running = false;
-        
+
         if self.config.enable_waveform_recording {
             self.waveform_recorder.stop_recording()?;
-            println!("Waveform data saved to: {:?}", self.config.waveform_output_file);
+            println!(
+                "Waveform data saved to: {:?}",
+                self.config.waveform_output_file
+            );
         }
-        
+
         println!("Extended simulation stopped");
         Ok(())
     }
@@ -233,11 +262,12 @@ impl ExtendedComputerSimulation {
         }
 
         if let Some(max_cycles) = self.config.max_cycles
-            && self.step_count >= max_cycles {
-                return false;
-            }        // クロック進行
+            && self.step_count >= max_cycles
+        {
+            return false;
+        } // クロック進行
         self.simulation_clock.step();
-        
+
         // メモリアクセス処理
         let memory_data = if self.riscv_cpu.is_memory_write() {
             // メモリ書き込み
@@ -254,14 +284,16 @@ impl ExtendedComputerSimulation {
 
         // CPU実行
         self.riscv_cpu.clock_cycle(memory_data);
-        
+
         // DRAM更新 - cpu_clockを後から取得
         let cpu_clock = self.simulation_clock.get_clock("cpu").unwrap();
-        self.dram_controller.on_clock_edge(cpu_clock.get_edge(), "cpu");
+        self.dram_controller
+            .on_clock_edge(cpu_clock.get_edge(), "cpu");
 
         // 波形記録
         if self.config.enable_waveform_recording {
-            self.waveform_recorder.advance_time(self.simulation_clock.time_step_ns);
+            self.waveform_recorder
+                .advance_time(self.simulation_clock.time_step_ns);
             self.record_waveforms();
         }
 
@@ -280,8 +312,9 @@ impl ExtendedComputerSimulation {
     fn record_waveforms(&mut self) {
         // クロック信号
         let cpu_clock = self.simulation_clock.get_clock("cpu").unwrap();
-        self.waveform_recorder.record_clock("clk", cpu_clock.get_edge());
-        
+        self.waveform_recorder
+            .record_clock("clk", cpu_clock.get_edge());
+
         // CPU状態記録
         self.riscv_cpu.record_waveforms(&mut self.waveform_recorder);
     }
@@ -295,10 +328,10 @@ impl ExtendedComputerSimulation {
     /// シミュレーション実行
     pub fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         self.start()?;
-        
+
         let start_time = std::time::Instant::now();
         let mut last_report_time = start_time;
-        
+
         while self.step() {
             // 定期レポート（大きなプログラムの場合）
             if last_report_time.elapsed() >= std::time::Duration::from_secs(5) {
@@ -306,29 +339,36 @@ impl ExtendedComputerSimulation {
                 last_report_time = std::time::Instant::now();
             }
         }
-        
+
         let elapsed = start_time.elapsed();
         self.stop()?;
-        
+
         println!("Simulation completed in {:.2}ms", elapsed.as_millis());
-        
+
         Ok(())
     }
 
     /// 進捗レポート
     fn print_progress_report(&self) {
         let ipc = if self.performance_stats.total_cycles > 0 {
-            self.performance_stats.total_instructions as f64 / self.performance_stats.total_cycles as f64
+            self.performance_stats.total_instructions as f64
+                / self.performance_stats.total_cycles as f64
         } else {
             0.0
         };
-        
+
         println!("=== Progress Report ===");
         println!("Steps: {}", self.step_count);
         println!("CPU Cycles: {}", self.performance_stats.total_cycles);
-        println!("Instructions: {}", self.performance_stats.total_instructions);
+        println!(
+            "Instructions: {}",
+            self.performance_stats.total_instructions
+        );
         println!("IPC: {ipc:.3}");
-        println!("Memory Accesses: {}", self.performance_stats.memory_accesses);
+        println!(
+            "Memory Accesses: {}",
+            self.performance_stats.memory_accesses
+        );
         println!("PC: 0x{:016X}", self.riscv_cpu.get_pc());
         println!("CPU State: {:?}", self.riscv_cpu.get_state());
     }
@@ -336,91 +376,91 @@ impl ExtendedComputerSimulation {
     /// デモプログラム実行
     pub fn run_demo_programs(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         println!("=== Running Demo Programs ===");
-        
+
         // デモ1: フィボナッチ数列
         self.run_fibonacci_demo()?;
-        
+
         // デモ2: 基本算術演算
         self.run_arithmetic_demo()?;
-        
+
         // デモ3: メモリアクセステスト
         self.run_memory_test_demo()?;
-        
+
         Ok(())
     }
 
     fn run_fibonacci_demo(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         println!("\n--- Fibonacci Demo ---");
-        
+
         let program = vec![
-            RiscVInstruction::Addi(1, 0, 1),    // x1 = 1 (fib(1))
-            RiscVInstruction::Addi(2, 0, 1),    // x2 = 1 (fib(2))
-            RiscVInstruction::Addi(3, 0, 10),   // x3 = 10 (counter)
+            RiscVInstruction::Addi(1, 0, 1),  // x1 = 1 (fib(1))
+            RiscVInstruction::Addi(2, 0, 1),  // x2 = 1 (fib(2))
+            RiscVInstruction::Addi(3, 0, 10), // x3 = 10 (counter)
             // loop:
-            RiscVInstruction::Add(4, 1, 2),     // x4 = x1 + x2 (next fib)
-            RiscVInstruction::Add(1, 2, 0),     // x1 = x2
-            RiscVInstruction::Add(2, 4, 0),     // x2 = x4
-            RiscVInstruction::Addi(3, 3, -1),   // x3 = x3 - 1
-            RiscVInstruction::Bne(3, 0, -16),   // if x3 != 0 goto loop
+            RiscVInstruction::Add(4, 1, 2), // x4 = x1 + x2 (next fib)
+            RiscVInstruction::Add(1, 2, 0), // x1 = x2
+            RiscVInstruction::Add(2, 4, 0), // x2 = x4
+            RiscVInstruction::Addi(3, 3, -1), // x3 = x3 - 1
+            RiscVInstruction::Bne(3, 0, -16), // if x3 != 0 goto loop
             RiscVInstruction::Halt,
         ];
-        
+
         self.reset_simulation();
         self.load_program(&program, 0x80000000)?;
         self.config.max_cycles = Some(1000);
         self.run()?;
-        
+
         println!("Fibonacci result in x2: {}", self.riscv_cpu.get_register(2));
         Ok(())
     }
 
     fn run_arithmetic_demo(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         println!("\n--- Arithmetic Demo ---");
-        
+
         let program = vec![
-            RiscVInstruction::Addi(1, 0, 42),   // x1 = 42
-            RiscVInstruction::Addi(2, 0, 24),   // x2 = 24
-            RiscVInstruction::Add(3, 1, 2),     // x3 = x1 + x2
-            RiscVInstruction::Sub(4, 1, 2),     // x4 = x1 - x2
-            RiscVInstruction::And(5, 1, 2),     // x5 = x1 & x2
-            RiscVInstruction::Or(6, 1, 2),      // x6 = x1 | x2
-            RiscVInstruction::Xor(7, 1, 2),     // x7 = x1 ^ x2
+            RiscVInstruction::Addi(1, 0, 42), // x1 = 42
+            RiscVInstruction::Addi(2, 0, 24), // x2 = 24
+            RiscVInstruction::Add(3, 1, 2),   // x3 = x1 + x2
+            RiscVInstruction::Sub(4, 1, 2),   // x4 = x1 - x2
+            RiscVInstruction::And(5, 1, 2),   // x5 = x1 & x2
+            RiscVInstruction::Or(6, 1, 2),    // x6 = x1 | x2
+            RiscVInstruction::Xor(7, 1, 2),   // x7 = x1 ^ x2
             RiscVInstruction::Halt,
         ];
-        
+
         self.reset_simulation();
         self.load_program(&program, 0x80000000)?;
         self.config.max_cycles = Some(100);
         self.run()?;
-        
+
         println!("Results:");
         println!("  42 + 24 = {}", self.riscv_cpu.get_register(3));
         println!("  42 - 24 = {}", self.riscv_cpu.get_register(4));
         println!("  42 & 24 = {}", self.riscv_cpu.get_register(5));
         println!("  42 | 24 = {}", self.riscv_cpu.get_register(6));
         println!("  42 ^ 24 = {}", self.riscv_cpu.get_register(7));
-        
+
         Ok(())
     }
 
     fn run_memory_test_demo(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         println!("\n--- Memory Test Demo ---");
-        
+
         let program = vec![
             RiscVInstruction::Addi(1, 0, 0x100),  // x1 = 0x100 (address)
-            RiscVInstruction::Addi(2, 0, 0xDEAD),  // x2 = 0xDEAD (data)
-            RiscVInstruction::Sw(2, 1, 0),         // store x2 to [x1]
-            RiscVInstruction::Lw(3, 1, 0),         // load x3 from [x1]
+            RiscVInstruction::Addi(2, 0, 0xDEAD), // x2 = 0xDEAD (data)
+            RiscVInstruction::Sw(2, 1, 0),        // store x2 to [x1]
+            RiscVInstruction::Lw(3, 1, 0),        // load x3 from [x1]
             RiscVInstruction::Halt,
         ];
-        
+
         self.reset_simulation();
         self.load_program(&program, 0x80000000)?;
         self.config.max_cycles = Some(100);
         self.run()?;
-        
+
         println!("Memory test result: 0x{:X}", self.riscv_cpu.get_register(3));
-        
+
         Ok(())
     }
 
@@ -433,10 +473,18 @@ impl ExtendedComputerSimulation {
     }
 
     // ゲッター
-    pub fn get_config(&self) -> &ExtendedSimConfig { &self.config }
-    pub fn get_riscv_cpu(&self) -> &RiscVCpu { &self.riscv_cpu }
-    pub fn get_performance_stats(&self) -> &PerformanceStats { &self.performance_stats }
-    pub fn get_step_count(&self) -> u64 { self.step_count }
+    pub fn get_config(&self) -> &ExtendedSimConfig {
+        &self.config
+    }
+    pub fn get_riscv_cpu(&self) -> &RiscVCpu {
+        &self.riscv_cpu
+    }
+    pub fn get_performance_stats(&self) -> &PerformanceStats {
+        &self.performance_stats
+    }
+    pub fn get_step_count(&self) -> u64 {
+        self.step_count
+    }
 }
 
 /// 従来のComputerSimulationクラス（後方互換性のため）
@@ -457,7 +505,7 @@ impl ComputerSimulation {
         if let Some(max_steps) = steps {
             self.extended_sim.config.max_cycles = Some(max_steps);
         }
-        
+
         self.extended_sim.run().unwrap_or_else(|e| {
             println!("Simulation error: {e}");
         });
@@ -470,8 +518,12 @@ impl ComputerSimulation {
         println!("CPU Cycles: {}", stats.total_cycles);
         println!("Instructions: {}", stats.total_instructions);
         println!("PC: 0x{:016X}", self.extended_sim.get_riscv_cpu().get_pc());
-        println!("CPU State: {:?}", self.extended_sim.get_riscv_cpu().get_state());
-    }    pub fn add_wire(&mut self, _name: String) {
+        println!(
+            "CPU State: {:?}",
+            self.extended_sim.get_riscv_cpu().get_state()
+        );
+    }
+    pub fn add_wire(&mut self, _name: String) {
         // 後方互換性のため、何もしない
     }
 

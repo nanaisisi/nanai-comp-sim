@@ -158,15 +158,16 @@ impl WaveformRecorder {
 
         // VCDファイルにも記録（借用の競合を避けるため、スコープを分ける）
         if let Some(ref mut vcd_writer) = self.vcd_file
-            && let Some(signal) = self.signals.get(signal_name) {
-                Self::write_vcd_change_static(
-                    vcd_writer,
-                    &signal.vcd_symbol,
-                    self.current_time_ns,
-                    &value,
-                )
-                .ok();
-            }
+            && let Some(signal) = self.signals.get(signal_name)
+        {
+            Self::write_vcd_change_static(
+                vcd_writer,
+                &signal.vcd_symbol,
+                self.current_time_ns,
+                &value,
+            )
+            .ok();
+        }
     }
 
     /// クロック信号の記録
@@ -236,13 +237,14 @@ impl WaveformRecorder {
             .as_secs();
 
         writeln!(writer, "$date")?;
-        writeln!(
-            writer,
-            "    {}",
-            chrono::DateTime::from_timestamp(timestamp as i64, 0)
-                .unwrap_or_default()
-                .format("%a %b %d %H:%M:%S %Y")
-        )?;
+        let date_str = jiff::Timestamp::from_second(timestamp as i64)
+            .map(|ts| {
+                ts.to_zoned(jiff::tz::TimeZone::system())
+                    .strftime("%a %b %d %H:%M:%S %Y")
+                    .to_string()
+            })
+            .unwrap_or_default();
+        writeln!(writer, "    {}", date_str)?;
         writeln!(writer, "$end")?;
 
         writeln!(writer, "$version")?;

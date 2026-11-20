@@ -238,11 +238,8 @@ impl WaveformRecorder {
 
         writeln!(writer, "$date")?;
         let date_str = jiff::Timestamp::from_second(timestamp as i64)
-            .map(|ts| {
-                ts.to_zoned(jiff::tz::TimeZone::system())
-                    .strftime("%a %b %d %H:%M:%S %Y")
-                    .to_string()
-            })
+            .and_then(|ts| ts.in_tz("system"))
+            .map(|z| z.strftime("%a %b %d %H:%M:%S %Y").to_string())
             .unwrap_or_default();
         writeln!(writer, "    {}", date_str)?;
         writeln!(writer, "$end")?;
